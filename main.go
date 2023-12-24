@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -65,21 +66,21 @@ func checkForNewHashes(oldPath string, newPath string) ([]string, [][]string) {
 	newJSFiles := []string{}
 	diffJSFiles := [][]string{}
 
-	// get a list of all old hashes - map to still get the name of the file ?
-	_, err := os.Stat(oldPath)
-	if os.IsNotExist(err) {
-		fmt.Println("No old folder to check against provided")
-		return []string{}, [][]string{}
-	}
-	oldFiles := getAllFilesIn(oldPath)
-	for _, file := range oldFiles[1:] {
-		oldHashes[strings.SplitN(file, "_", 2)[0]] = file // strings.SplitN(file, "_", 2)[1]
-	}
-
 	// get a list of all new hashes - Same
 	newFiles := getAllFilesIn(newPath)
 	for _, file := range newFiles[1:] {
 		newHashes[strings.SplitN(file, "_", 2)[0]] = file // strings.SplitN(file, "_", 2)[1]
+	}
+	// get a list of all old hashes - map to still get the name of the file ?
+	_, err := os.Stat(oldPath)
+	if os.IsNotExist(err) {
+		fmt.Println("No old folder to check against provided")
+		fmt.Println(newFiles)
+		return newFiles[1:], [][]string{}
+	}
+	oldFiles := getAllFilesIn(oldPath)
+	for _, file := range oldFiles[1:] {
+		oldHashes[strings.SplitN(file, "_", 2)[0]] = file // strings.SplitN(file, "_", 2)[1]
 	}
 
 	//get either file as new or diff
@@ -115,7 +116,7 @@ func saveLogs(dir string, newJsFiles []string, allDiffs map[string][]byte) {
 		os.Mkdir(dir, 0755)
 	}
 	dt := time.Now()
-	file, err := os.Create(fmt.Sprintf("%s/log_%s", dir, dt.Format(time.RFC822)))
+	file, err := os.Create(fmt.Sprintf("%s/log_%s", dir, dt.Format(time.RFC3339)))
 	defer file.Close()
 
 	w := bufio.NewWriter(file)
@@ -132,15 +133,17 @@ func saveLogs(dir string, newJsFiles []string, allDiffs map[string][]byte) {
 }
 
 func main() {
-	archiveDir := "./Archives"
-	oldDir := "./Downloads"
+	archiveDir := flag.String("archive", "./Archives", "Set folder for archives (default:'./Archives')")
+	oldDir := flag.String("dir", "./Downloads", "Set folder where previous files are (default:'./Downloads')")
 	newDir := "./temp_Downloads"
-	logsDir := "./logs"
+	logsDir := flag.String("log", "./Logs", "Set folder for storing logs (default:'./Logs')")
 	var urlsList []string
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		urlsList = append(urlsList, sc.Text())
 	}
+
+	flag.Parse()
 
 	_, err := os.Stat(newDir)
 	if os.IsNotExist(err) {
@@ -153,31 +156,28 @@ func main() {
 
 	allDiffs := make(map[string][]byte)
 
-	newJsFiles, diffJsFiles := checkForNewHashes(oldDir, newDir)
+	newJsFiles, diffJsFiles := checkForNewHashes(*oldDir, newDir)
 	for _, files := range diffJsFiles {
-		allDiffs[fmt.Sprintf("%s & %s", files[0], files[1])] = getDiff(fmt.Sprintf("%s/%s", newDir, files[0]), fmt.Sprintf("%s/%s", oldDir, files[1]))
+		allDiffs[fmt.Sprintf("%s & %s", files[0], files[1])] = getDiff(fmt.Sprintf("%s/%s", newDir, files[0]), fmt.Sprintf("%s/%s", *oldDir, files[1]))
 	}
 
-	fmt.Printf("Downloaded %d files in %s\n", len(urlsList), newDir)
+	fmt.Printf("Downloaded %d files in %s\n", len(urlsList), *oldDir)
 	fmt.Printf("%d new files found\n", len(newJsFiles))
 	fmt.Printf("%d files with modifications found\n", len(diffJsFiles))
 
-	_, err = os.Stat(archiveDir)
+	_, err = os.Stat(*archiveDir)
 	if os.IsNotExist(err) {
-		os.Mkdir(archiveDir, 0755)
+		os.Mkdir(*archiveDir, 0755)
 	}
 
-	err = exec.Command("sh", "-c", fmt.Sprintf("mv -n %s/* %s", oldDir, archiveDir)).Run()
-	err = exec.Command("sh", "-c", fmt.Sprintf("rm -rf %s; mv %s/ %s", oldDir, newDir, oldDir)).Run()
+	err = exec.Command("sh", "-c", fmt.Sprintf("mv -n %s/* %s", *oldDir, *archiveDir)).Run()
+	err = exec.Command("sh", "-c", fmt.Sprintf("rm -rf %s; mv %s/ %s", *oldDir, newDir, *oldDir)).Run()
 	if len(newJsFiles) != 0 || len(allDiffs) != 0 {
-		saveLogs(logsDir, newJsFiles, allDiffs)
+		saveLogs(*logsDir, newJsFiles, allDiffs)
 	}
 }
 
 // a faire :
 // Rajouter notify
-// Rajouter les arguments : pour les dossiers, pour notify, pour les output (-s, et -v)
-// Creer binary
-// upload to git(public)
-// publish
-// make a help/read-me
+// Rajouter les arguments : pour notify, pour les output (-s, et -v)
+// make a readme

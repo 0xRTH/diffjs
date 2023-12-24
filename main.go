@@ -176,7 +176,7 @@ func main() {
 
 // a faire :
 // Rajouter notify
-// Rajouter les arguments : pour les dossiers, pour notify
+// Rajouter les arguments : pour les dossiers, pour notify, pour les output (-s, et -v)
 // Creer binary
 // upload to git(public)
 // publish

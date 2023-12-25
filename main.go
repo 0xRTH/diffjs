@@ -110,7 +110,9 @@ func getDiff(path1 string, path2 string) []byte {
 	return diff
 }
 
-func saveLogs(dir string, newJsFiles []string, allDiffs map[string][]byte) {
+func saveLogAndReturnShortLog(dir string, newJsFiles []string, allDiffs map[[2]string][]byte) string {
+	shortLog := ""
+
 	_, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		os.Mkdir(dir, 0755)
@@ -121,15 +123,36 @@ func saveLogs(dir string, newJsFiles []string, allDiffs map[string][]byte) {
 
 	w := bufio.NewWriter(file)
 	_, err = w.WriteString("New files : \n\n")
+	shortLog += "New files : \n\n"
 	for _, new := range newJsFiles {
-		_, err = w.WriteString(fmt.Sprintf("%s\n", new))
+		_, err = w.WriteString(fmt.Sprintf("%s\n", nameToUrl(new)))
+		shortLog += fmt.Sprintf("%s\n", nameToUrl(new))
 	}
 	_, err = w.WriteString("\n\nAll diffs :")
+	shortLog += fmt.Sprintf("\n\n%d changes :\n", len(allDiffs))
 	for files, diff := range allDiffs {
-		_, err = w.WriteString(fmt.Sprintf("\n\n%s:\n\n", files))
+		_, err = w.WriteString(fmt.Sprintf("\n\n%s & %s:\n\n", files[0], files[1]))
 		_, err = w.WriteString(string(diff))
+		shortLog += fmt.Sprintf("\n%s -> %s:\n\n", files[0], files[1])
 	}
 	w.Flush()
+	return shortLog
+}
+
+func notify(data string, notifyId string) {
+	fmt.Println("Notifying...")
+	if notifyId != "" {
+		_ = exec.Command("sh", "-c", fmt.Sprintf("echo \"%s\" | notify -bulk -id %s", data, notifyId)).Run()
+	} else {
+		_ = exec.Command("sh", "-c", fmt.Sprintf("echo \"%s\" | notify -bulk", data)).Run()
+	}
+}
+
+func nameToUrl(name string) string {
+	url := "https://"
+	url += strings.SplitN(name, "_", 2)[1]
+	url = strings.ReplaceAll(url, "_", "/")
+	return url
 }
 
 func main() {
@@ -137,6 +160,8 @@ func main() {
 	oldDir := flag.String("dir", "./Downloads", "Set folder where previous files are (default:'./Downloads')")
 	newDir := "./temp_Downloads"
 	logsDir := flag.String("log", "./Logs", "Set folder for storing logs (default:'./Logs')")
+	isNotify := flag.Bool("notify", false, "Activate notification via notify")
+	nId := flag.String("nId", "", "Notify id to send the notification to (let empty to notify to default)")
 	var urlsList []string
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -154,11 +179,11 @@ func main() {
 		downloadAndHash(url)
 	}
 
-	allDiffs := make(map[string][]byte)
+	allDiffs := make(map[[2]string][]byte)
 
 	newJsFiles, diffJsFiles := checkForNewHashes(*oldDir, newDir)
 	for _, files := range diffJsFiles {
-		allDiffs[fmt.Sprintf("%s & %s", files[0], files[1])] = getDiff(fmt.Sprintf("%s/%s", newDir, files[0]), fmt.Sprintf("%s/%s", *oldDir, files[1]))
+		allDiffs[[2]string{files[0], files[1]}] = getDiff(fmt.Sprintf("%s/%s", newDir, files[0]), fmt.Sprintf("%s/%s", *oldDir, files[1]))
 	}
 
 	fmt.Printf("Downloaded %d files in %s\n", len(urlsList), *oldDir)
@@ -173,11 +198,14 @@ func main() {
 	err = exec.Command("sh", "-c", fmt.Sprintf("mv -n %s/* %s", *oldDir, *archiveDir)).Run()
 	err = exec.Command("sh", "-c", fmt.Sprintf("rm -rf %s; mv %s/ %s", *oldDir, newDir, *oldDir)).Run()
 	if len(newJsFiles) != 0 || len(allDiffs) != 0 {
-		saveLogs(*logsDir, newJsFiles, allDiffs)
+		shortLog := saveLogAndReturnShortLog(*logsDir, newJsFiles, allDiffs)
+		if *isNotify {
+			notify(shortLog, *nId)
+			// fmt.Println(shortLog, nId)
+		}
 	}
+
 }
 
 // a faire :
-// Rajouter notify
-// Rajouter les arguments : pour notify, pour les output (-s, et -v)
-// make a readme
+// Rajouter les arguments : pour les output (-s, et -v)
